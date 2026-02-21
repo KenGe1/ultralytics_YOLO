@@ -556,11 +556,36 @@ class Results(SimpleClass, DataExportMixin):
             tf, sf = max(lw - 1, 1), lw / 3
 
             if pred_masks is not None and masks:
-                m = self._cached_tensor_to_numpy("masks_data", pred_masks.data)
-                if len(m) and m.shape[-2:] != im.shape[:2]:
-                    if isinstance(pred_masks.data, torch.Tensor):
-                        m = ops.scale_masks(pred_masks.data[None].float(), im.shape[:2])[0].cpu().numpy() > 0.5
-                    else:
+                if isinstance(pred_masks.data, torch.Tensor):
+                    masks_t = pred_masks.data
+                    if len(masks_t):
+                        if pred_boxes is not None and pred_boxes.is_track and color_mode == "instance":
+                            idx = pred_boxes.id
+                        elif pred_boxes is not None and color_mode == "class":
+                            idx = pred_boxes.cls
+                        else:
+                            idx = range(len(masks_t) - 1, -1, -1)
+
+                        ih, iw = im.shape[:2]
+                        masks_t = ops.scale_masks(masks_t[None].float(), (ih, iw))[0] > 0.5
+                        im_gpu = torch.from_numpy(im).to(masks_t.device).permute(2, 0, 1).flip(0).contiguous().float() / 255.0
+                        colors_t = torch.tensor(
+                            [FAST_PLOT_COLORS[int(x) % len(FAST_PLOT_COLORS)] for x in idx],
+                            device=masks_t.device,
+                            dtype=torch.float32,
+                        ) / 255.0
+                        alpha = 0.5
+                        colors_t = colors_t[:, None, None]
+                        masks_u = masks_t.unsqueeze(3)
+                        masks_color = masks_u * (colors_t * alpha)
+                        inv_alpha_masks = (1 - masks_u * alpha).cumprod(0)
+                        mcs = masks_color.max(dim=0).values
+                        out = im_gpu.flip(0).permute(1, 2, 0).contiguous()
+                        out = out * inv_alpha_masks[-1] + mcs
+                        im[:] = (out * 255).byte().cpu().numpy()
+                else:
+                    m = self._cached_tensor_to_numpy("masks_data", pred_masks.data)
+                    if len(m) and m.shape[-2:] != im.shape[:2]:
                         m = np.stack(
                             [
                                 cv2.resize(mask.astype(np.uint8), (im.shape[1], im.shape[0]), interpolation=cv2.INTER_NEAREST)
@@ -569,27 +594,27 @@ class Results(SimpleClass, DataExportMixin):
                             ],
                             axis=0,
                         )
-                else:
-                    m = m > 0.5
-                if pred_boxes is not None and pred_boxes.is_track and color_mode == "instance":
-                    idx = self._cached_tensor_to_numpy("mask_idx_id", pred_boxes.id)
-                elif pred_boxes is not None and color_mode == "class":
-                    idx = self._cached_tensor_to_numpy("mask_idx_cls", pred_boxes.cls)
-                else:
-                    idx = range(len(m) - 1, -1, -1)
-                if len(m):
-                    idx = np.asarray(list(idx), dtype=np.int32)
-                    color_lut = np.asarray(FAST_PLOT_COLORS, dtype=np.float32)
-                    alpha = 0.5
-                    m = m.astype(bool, copy=False)
-                    any_mask = m.any(axis=0)
-                    if any_mask.any():
-                        top_rev = np.argmax(m[::-1], axis=0)
-                        top_idx = len(m) - 1 - top_rev
-                        color_ids = idx[top_idx] % len(color_lut)
-                        color_img = color_lut[color_ids].astype(np.uint8)
-                        blended = cv2.addWeighted(im, 1 - alpha, color_img, alpha, 0)
-                        im[any_mask] = blended[any_mask]
+                    else:
+                        m = m > 0.5
+                    if pred_boxes is not None and pred_boxes.is_track and color_mode == "instance":
+                        idx = self._cached_tensor_to_numpy("mask_idx_id", pred_boxes.id)
+                    elif pred_boxes is not None and color_mode == "class":
+                        idx = self._cached_tensor_to_numpy("mask_idx_cls", pred_boxes.cls)
+                    else:
+                        idx = range(len(m) - 1, -1, -1)
+                    if len(m):
+                        idx = np.asarray(list(idx), dtype=np.int32)
+                        color_lut = np.asarray(FAST_PLOT_COLORS, dtype=np.float32)
+                        alpha = 0.5
+                        m = m.astype(bool, copy=False)
+                        any_mask = m.any(axis=0)
+                        if any_mask.any():
+                            top_rev = np.argmax(m[::-1], axis=0)
+                            top_idx = len(m) - 1 - top_rev
+                            color_ids = idx[top_idx] % len(color_lut)
+                            color_img = color_lut[color_ids].astype(np.uint8)
+                            blended = cv2.addWeighted(im, 1 - alpha, color_img, alpha, 0)
+                            im[any_mask] = blended[any_mask]
 
             if pred_boxes is not None and boxes:
                 b = self._cached_tensor_to_numpy("boxes_data", pred_boxes.data)
