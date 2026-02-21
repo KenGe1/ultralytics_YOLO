@@ -15,6 +15,7 @@ from typing import Any
 import cv2
 import numpy as np
 import torch
+from PIL import Image
 
 from ultralytics.data.augment import LetterBox
 from ultralytics.utils import LOGGER, DataExportMixin, SimpleClass, ops
@@ -548,6 +549,16 @@ class Results(SimpleClass, DataExportMixin):
             im = self.orig_img if img is None else img
             if isinstance(im, torch.Tensor):
                 im = self._fast_orig_img_numpy()
+            elif isinstance(im, Image.Image):
+                im = np.asarray(im)
+                if im.ndim == 3 and im.shape[2] == 3:  # PIL is RGB, plotting expects BGR
+                    im = im[..., ::-1]
+            elif not isinstance(im, np.ndarray):
+                im = np.asarray(im)
+            if im.ndim == 2:
+                im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
+            elif im.ndim == 3 and im.shape[2] == 4:
+                im = cv2.cvtColor(im, cv2.COLOR_RGBA2BGR)
             if not im.flags.writeable:
                 im = im.copy()
             if not im.flags.c_contiguous:
