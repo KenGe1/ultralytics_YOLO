@@ -31,6 +31,7 @@ FAST_PLOT_COLORS = (
     (61, 219, 134),
 )
 
+
 class BaseTensor(SimpleClass):
     """Base tensor class with additional methods for easy manipulation and device handling.
 
@@ -296,7 +297,7 @@ class Results(SimpleClass, DataExportMixin):
             if len(self._fast_plot_cache) > 16:
                 self._fast_plot_cache.pop(next(iter(self._fast_plot_cache)))
         return cached
-    
+
     def _fast_orig_img_numpy(self) -> np.ndarray:
         """Return original tensor image as cached uint8 NumPy array for fast plotting."""
         assert isinstance(self.orig_img, torch.Tensor)
@@ -540,7 +541,11 @@ class Results(SimpleClass, DataExportMixin):
         """
         assert color_mode in {"instance", "class"}, f"Expected color_mode='instance' or 'class', not {color_mode}."
         if img is None and isinstance(self.orig_img, torch.Tensor):
-            img = self._fast_orig_img_numpy() if fast else (self.orig_img[0].detach().permute(1, 2, 0).contiguous() * 255).byte().cpu().numpy()
+            img = (
+                self._fast_orig_img_numpy()
+                if fast
+                else (self.orig_img[0].detach().permute(1, 2, 0).contiguous() * 255).byte().cpu().numpy()
+            )
 
         if fast:
             pred_boxes = self.obb if self.obb is not None else self.boxes
@@ -568,12 +573,18 @@ class Results(SimpleClass, DataExportMixin):
 
                         ih, iw = im.shape[:2]
                         masks_t = ops.scale_masks(masks_t[None].float(), (ih, iw))[0] > 0.5
-                        im_gpu = torch.from_numpy(im).to(masks_t.device).permute(2, 0, 1).flip(0).contiguous().float() / 255.0
-                        colors_t = torch.tensor(
-                            [FAST_PLOT_COLORS[int(x) % len(FAST_PLOT_COLORS)] for x in idx],
-                            device=masks_t.device,
-                            dtype=torch.float32,
-                        ) / 255.0
+                        im_gpu = (
+                            torch.from_numpy(im).to(masks_t.device).permute(2, 0, 1).flip(0).contiguous().float()
+                            / 255.0
+                        )
+                        colors_t = (
+                            torch.tensor(
+                                [FAST_PLOT_COLORS[int(x) % len(FAST_PLOT_COLORS)] for x in idx],
+                                device=masks_t.device,
+                                dtype=torch.float32,
+                            )
+                            / 255.0
+                        )
                         alpha = 0.5
                         colors_t = colors_t[:, None, None]
                         masks_u = masks_t.unsqueeze(3)
@@ -588,7 +599,9 @@ class Results(SimpleClass, DataExportMixin):
                     if len(m) and m.shape[-2:] != im.shape[:2]:
                         m = np.stack(
                             [
-                                cv2.resize(mask.astype(np.uint8), (im.shape[1], im.shape[0]), interpolation=cv2.INTER_NEAREST)
+                                cv2.resize(
+                                    mask.astype(np.uint8), (im.shape[1], im.shape[0]), interpolation=cv2.INTER_NEAREST
+                                )
                                 > 0
                                 for mask in m
                             ],
@@ -618,7 +631,9 @@ class Results(SimpleClass, DataExportMixin):
 
             if pred_boxes is not None and boxes:
                 b = self._cached_tensor_to_numpy("boxes_data", pred_boxes.data)
-                obb_points = self._cached_tensor_to_numpy("obb_xyxyxyxy", pred_boxes.xyxyxyxy) if self.obb is not None else None
+                obb_points = (
+                    self._cached_tensor_to_numpy("obb_xyxyxyxy", pred_boxes.xyxyxyxy) if self.obb is not None else None
+                )
                 has_id = pred_boxes.is_track
                 for i in range(len(b) - 1, -1, -1):
                     row = b[i]
@@ -645,8 +660,27 @@ class Results(SimpleClass, DataExportMixin):
                 pose_kpt = colors.pose_palette[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]
                 pose_limb = colors.pose_palette[[9, 9, 9, 9, 7, 7, 7, 0, 0, 0, 0, 0, 16, 16, 16, 16, 16, 16, 16]]
                 skeleton = np.array(
-                    [[16, 14], [14, 12], [17, 15], [15, 13], [12, 13], [6, 12], [7, 13], [6, 7], [6, 8], [7, 9],
-                     [8, 10], [9, 11], [2, 3], [1, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 7]],
+                    [
+                        [16, 14],
+                        [14, 12],
+                        [17, 15],
+                        [15, 13],
+                        [12, 13],
+                        [6, 12],
+                        [7, 13],
+                        [6, 7],
+                        [6, 8],
+                        [7, 9],
+                        [8, 10],
+                        [9, 11],
+                        [2, 3],
+                        [1, 2],
+                        [1, 3],
+                        [2, 4],
+                        [3, 5],
+                        [4, 6],
+                        [5, 7],
+                    ],
                     dtype=np.int32,
                 )
                 h, w = self.orig_shape
@@ -741,13 +775,7 @@ class Results(SimpleClass, DataExportMixin):
                 label = (f"{name} {d_conf:.2f}" if conf else name) if labels else None
                 box = d.xyxyxyxy.squeeze() if is_obb else d.xyxy.squeeze()
                 draw_color = colors(
-                    c
-                    if color_mode == "class"
-                    else id
-                    if id is not None
-                    else i
-                    if color_mode == "instance"
-                    else None,
+                    c if color_mode == "class" else id if id is not None else i if color_mode == "instance" else None,
                     True,
                 )
                 annotator.box_label(
